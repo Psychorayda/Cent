@@ -296,7 +296,7 @@ export async function classify(
 		return {
 			action: "create",
 			categoryId: llm.categoryId,
-			comment: makeComment(tx, undefined, llm.comment),
+			comment: makeComment(tx),
 			confidence: "medium",
 		};
 	}
@@ -314,7 +314,7 @@ async function classifyWithLlm(
 	tx: NormalizedTx,
 	categories: CategoryInfo[],
 	env: Env,
-): Promise<{ categoryId: string; comment?: string } | null> {
+): Promise<{ categoryId: string } | null> {
 	if (
 		!env.LLM_BASE_URL ||
 		!env.LLM_API_KEY ||
@@ -323,14 +323,31 @@ async function classifyWithLlm(
 		return null;
 	}
 
+	const cacheIdentity = tx.merchant || tx.subtype || "";
+	const cacheKey = cacheIdentity
+		? `llm-category:${tx.direction}:${cacheIdentity}`
+		: "";
+	if (cacheKey) {
+		const cached = await env.INBOX_KV.get(cacheKey);
+		if (cached) {
+			const categoryId = resolveCategory(
+				categories,
+				cached,
+				tx.direction,
+			);
+			if (categoryId) return { categoryId };
+		}
+	}
+
+	// 只给顶层分类，减少 token 和模型延迟
 	const options = categories
-		.filter((c) => c.type === tx.direction)
+		.filter((c) => c.type === tx.direction && !c.parent)
 		.map((c) => `${c.id}\t${c.nameZh}`)
 		.join("\n");
 
 	const prompt = [
 		"你是记账分类器。根据银行动账信息，从下面的分类中选一个最合适的。",
-		"只能返回 JSON，格式：{\"categoryId\":\"分类id\",\"comment\":\"可选备注\"}。",
+		"只能返回 JSON，格式：{\"categoryId\":\"分类id\"}。",
 		"不能返回列表之外的 categoryId。",
 		"",
 		`分类列表（id\\t名称）：\n${options}`,
@@ -339,7 +356,7 @@ async function classifyWithLlm(
 	].join("\n");
 
 	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), 5000);
+	const timer = setTimeout(() => controller.abort(), 10000);
 
 	try {
 		const base = env.LLM_BASE_URL.replace(/\/$/, "");
@@ -352,6 +369,7 @@ async function classifyWithLlm(
 			body: JSON.stringify({
 				model: env.LLM_MODEL,
 				temperature: 0,
+				max_tokens: 200,
 				messages: [
 					{ role: "system", content: prompt },
 					{
@@ -363,17 +381,29 @@ async function classifyWithLlm(
 			signal: controller.signal,
 		});
 
-		if (!res.ok) return null;
+		if (!res.ok) {
+			console.warn(
+				"[bank-sms] llm http error",
+				res.status,
+				tx.merchant,
+			);
+			return null;
+		}
 		const data: any = await res.json();
 		const raw = data?.choices?.[0]?.message?.content;
 		if (typeof raw !== "string") return null;
 
-		const parsed = JSON.parse(
-			raw
-				.replace(/```json/gi, "")
-				.replace(/```/g, "")
-				.trim(),
-		);
+		const text = raw
+			.replace(/```json/gi, "")
+			.replace(/```/g, "")
+			.trim();
+		const start = text.indexOf("{");
+		const end = text.lastIndexOf("}");
+		const jsonText =
+			start >= 0 && end > start
+				? text.slice(start, end + 1)
+				: text;
+		const parsed = JSON.parse(jsonText);
 		const categoryId = resolveCategory(
 			categories,
 			String(parsed?.categoryId ?? ""),
@@ -381,14 +411,18 @@ async function classifyWithLlm(
 		);
 		if (!categoryId) return null;
 
-		return {
-			categoryId,
-			comment:
-				typeof parsed?.comment === "string"
-					? parsed.comment
-					: undefined,
-		};
-	} catch {
+		if (cacheKey) {
+			await env.INBOX_KV.put(cacheKey, categoryId, {
+				expirationTtl: 30 * 24 * 60 * 60,
+			});
+		}
+		return { categoryId };
+	} catch (error) {
+		console.warn(
+			"[bank-sms] llm failed",
+			tx.merchant,
+			(error as Error)?.message,
+		);
 		return null;
 	} finally {
 		clearTimeout(timer);
