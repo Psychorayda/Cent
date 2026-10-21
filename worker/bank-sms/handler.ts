@@ -192,6 +192,7 @@ export async function handleBankSms(
 			confidence: classification.confidence,
 			balance: tx.balance,
 			occurredAt: tx.occurredAt,
+			llm: classification.llm,
 		},
 		createdAt: Date.now(),
 	};

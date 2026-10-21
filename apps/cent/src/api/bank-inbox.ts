@@ -15,6 +15,11 @@ export type BankInboxItem = {
         confidence: "high" | "medium" | "low";
         balance?: number;
         occurredAt: number;
+        llm?: {
+            model?: string;
+            confidence?: number;
+            reason?: string;
+        };
     };
     createdAt: number;
 };

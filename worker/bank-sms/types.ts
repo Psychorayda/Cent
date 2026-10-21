@@ -63,6 +63,11 @@ export type InboxItem = {
 		confidence: Confidence;
 		balance?: number;
 		occurredAt: number;
+		llm?: {
+			model?: string;
+			confidence?: number;
+			reason?: string;
+		};
 	};
 	createdAt: number;
 };
