@@ -23,6 +23,7 @@ import { SortableListWithEnableProvider } from "@/components/sortable/enable";
 import { SortableGroupProvider } from "@/components/sortable/group";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WidgetEditProvider } from "@/components/widget/edit-form";
+import { useBankInbox } from "@/hooks/use-bank-inbox";
 import { useInitPreset } from "@/hooks/use-preset";
 import {
     useQuickEntryByClipboard,
@@ -44,6 +45,7 @@ let zenStatusMeasured = false;
 
 export default function MainLayout() {
     useMeasurementUsageSnapshot();
+    useBankInbox();
     useQuickGoAdd();
     useQuickEntryByClipboard();
     useQuickEntryByRelayr();

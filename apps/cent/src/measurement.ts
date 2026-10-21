@@ -8,7 +8,8 @@ export type BillCreateSource =
     | "duplicate"
     | "split"
     | "import"
-    | "assistant_import";
+    | "assistant_import"
+    | "bank_sms";
 
 export type TokenRange =
     | "zero"
