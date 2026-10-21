@@ -6,6 +6,7 @@ import {
     hasGithubToken,
     isGithubEndpoint,
 } from "@/api/bank-inbox";
+import { BillCategories } from "@/ledger/category";
 import { measure } from "@/measurement";
 import { useBookStore } from "@/store/book";
 import { useLedgerStore } from "@/store/ledger";
@@ -51,10 +52,13 @@ async function ensureBankMeta() {
     const meta = store.infos?.meta;
     if (!meta) return;
 
-    const categories = meta.categories ?? [];
+    const effectiveCategories =
+        meta.categories && meta.categories.length > 0
+            ? meta.categories
+            : BillCategories;
     const tags = meta.tags ?? [];
 
-    const hasRefundCategory = categories.some(
+    const hasRefundCategory = effectiveCategories.some(
         (c) =>
             c.id === REFUND_CATEGORY.id ||
             (c.type === "income" && c.name === REFUND_CATEGORY.name),
@@ -66,19 +70,48 @@ async function ensureBankMeta() {
 
     if (hasRefundCategory && missingTags.length === 0) return;
 
-    await store.updateGlobalMeta((prev) => ({
-        ...prev,
-        categories: hasRefundCategory
-            ? (prev.categories ?? [])
-            : [...(prev.categories ?? []), { ...REFUND_CATEGORY }],
-        tags: [...(prev.tags ?? []), ...missingTags],
-    }));
+    await store.updateGlobalMeta((prev) => {
+        const customCategories =
+            prev.categories && prev.categories.length > 0
+                ? prev.categories
+                : undefined;
+
+        const currentCategories = customCategories ?? BillCategories;
+        const hasRefund = currentCategories.some(
+            (c) =>
+                c.id === REFUND_CATEGORY.id ||
+                (c.type === "income" && c.name === REFUND_CATEGORY.name),
+        );
+
+        const nextTags = [...(prev.tags ?? [])];
+        for (const tag of BANK_TAGS) {
+            if (
+                !nextTags.some(
+                    (item) => item.id === tag.id || item.name === tag.name,
+                )
+            ) {
+                nextTags.push(tag);
+            }
+        }
+
+        return {
+            ...prev,
+            // 没有自定义分类时保持 undefined，让 useCategory 回退到默认分类
+            categories: customCategories
+                ? hasRefund
+                    ? customCategories
+                    : [...customCategories, { ...REFUND_CATEGORY }]
+                : undefined,
+            tags: nextTags,
+        };
+    });
 
     // 等本地 infos 刷新，避免刚导入的退款账单短暂显示空分类
     if (hasRefundCategory) return;
     for (let i = 0; i < 6; i += 1) {
-        const current = useLedgerStore.getState().infos?.meta.categories ?? [];
-        const present = current.some(
+        const current = useLedgerStore.getState().infos?.meta.categories;
+        const effective = current?.length ? current : BillCategories;
+        const present = effective.some(
             (c) =>
                 c.id === REFUND_CATEGORY.id ||
                 (c.type === "income" && c.name === REFUND_CATEGORY.name),

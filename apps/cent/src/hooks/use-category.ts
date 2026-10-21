@@ -36,7 +36,9 @@ export default function useCategory() {
 
     const categories = useMemo(
         () =>
-            (savedCategories ?? BillCategories).map((v) => intlCategory(v, t)),
+            (savedCategories?.length ? savedCategories : BillCategories).map(
+                (v) => intlCategory(v, t),
+            ),
         [savedCategories, t],
     );
 
