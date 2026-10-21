@@ -186,7 +186,10 @@ export async function classify(
 	}
 
 	// 2. 退款：收入，新建的“退款”分类
-	if (tx.subtype === "退款" || /退款/.test(inner)) {
+	if (
+		tx.direction === "income" &&
+		(tx.subtype === "退款" || /退款/.test(inner))
+	) {
 		return {
 			action: "create",
 			categoryId: resolveRefundCategory(categories),

@@ -212,6 +212,9 @@ export async function handleInbox(
 	request: Request,
 	env: Env,
 ): Promise<Response> {
+	if (request.method !== "GET") {
+		return json({ ok: false, error: "method-not-allowed" }, 405);
+	}
 	if (!(await checkInboxAuth(request, env))) {
 		return json({ ok: false, error: "unauthorized" }, 401);
 	}

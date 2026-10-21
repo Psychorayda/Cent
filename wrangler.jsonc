@@ -17,7 +17,7 @@
 		}
 	],
 	"vars": {
-		"GITHUB_REPO": "",
+		"GITHUB_REPO": "Psychorayda/cent-journal-TEST",
 		"OWNER_GITHUB_ID": "139367325",
 		"FALLBACK_EXPENSE_CATEGORY": "other-expenses",
 		"FALLBACK_INCOME_CATEGORY": "other-income",

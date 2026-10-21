@@ -16,6 +16,7 @@ export function checkSmsAuth(request: Request, env: Env): boolean {
 	const provided =
 		request.headers.get("X-Cent-Token") ??
 		getBearer(request) ??
+		new URL(request.url).searchParams.get("token") ??
 		"";
 	return safeEqual(provided, expected);
 }

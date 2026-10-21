@@ -101,9 +101,28 @@ async function pullInbox(bookId: string) {
     const byId = new Map(
         [...assigned, ...unassigned].map((item) => [item.id, item]),
     );
+    const items = [...byId.values()];
     const processed = new Set(readProcessed());
-    const fresh = [...byId.values()].filter((item) => !processed.has(item.id));
-    if (fresh.length === 0) return;
+    const fresh = items.filter((item) => !processed.has(item.id));
+    const stale = items.filter((item) => processed.has(item.id));
+
+    const groups = new Map<string, string[]>();
+    for (const item of [...fresh, ...stale]) {
+        const list = groups.get(item.bookId) ?? [];
+        list.push(item.id);
+        groups.set(item.bookId, list);
+    }
+
+    if (fresh.length === 0) {
+        if (stale.length > 0) {
+            await Promise.all(
+                [...groups.entries()].map(([targetBook, ids]) =>
+                    ackBankInbox(targetBook, ids),
+                ),
+            );
+        }
+        return;
+    }
 
     await ensureBankMeta();
 
@@ -116,12 +135,6 @@ async function pullInbox(bookId: string) {
 
     markProcessed(fresh.map((item) => item.id));
 
-    const groups = new Map<string, string[]>();
-    for (const item of fresh) {
-        const list = groups.get(item.bookId) ?? [];
-        list.push(item.id);
-        groups.set(item.bookId, list);
-    }
     await Promise.all(
         [...groups.entries()].map(([targetBook, ids]) =>
             ackBankInbox(targetBook, ids),
@@ -166,11 +179,15 @@ export function useBankInbox() {
         };
         document.addEventListener("visibilitychange", onVisible);
         window.addEventListener("focus", run);
+        const interval = window.setInterval(() => {
+            if (document.visibilityState === "visible") run();
+        }, 5 * 60_000);
 
         return () => {
             cancelled = true;
             document.removeEventListener("visibilitychange", onVisible);
             window.removeEventListener("focus", run);
+            window.clearInterval(interval);
         };
     }, [bookId, ready]);
 }
