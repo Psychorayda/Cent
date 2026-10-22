@@ -19,6 +19,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import useCategory from "@/hooks/use-category";
 import { useCurrency } from "@/hooks/use-currency";
 import { useCustomFilters } from "@/hooks/use-custom-filters";
+import { clearPendingTransferMark } from "@/ledger/bill";
 import type { Bill, BillFilter } from "@/ledger/type";
 import { useIntl } from "@/locale";
 import { measure } from "@/measurement";
@@ -211,10 +212,11 @@ export default function Page() {
         const edit = await showBatchEdit(initial);
         const updatedEntries = selectedIds
             .map((id) => {
-                const bill = { ...sorted.find((v) => v.id === id) } as Bill;
-                if (!bill) {
+                const original = sorted.find((v) => v.id === id);
+                if (!original) {
                     return undefined;
                 }
+                const bill: Bill = { ...original };
                 if (edit.type !== undefined) {
                     const isTypeChanged = bill.type !== edit.type;
                     bill.type = edit.type;
@@ -232,7 +234,7 @@ export default function Page() {
                 }
                 return {
                     id: bill.id,
-                    entry: bill,
+                    entry: clearPendingTransferMark(bill, original.categoryId),
                 };
             })
             .filter((v) => v !== undefined);

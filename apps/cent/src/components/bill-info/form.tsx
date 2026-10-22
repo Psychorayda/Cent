@@ -7,7 +7,7 @@ import { useCreators } from "@/hooks/use-creator";
 import { useCurrency } from "@/hooks/use-currency";
 import { useScheduled } from "@/hooks/use-scheduled";
 import { useTag } from "@/hooks/use-tag";
-import { amountToNumber } from "@/ledger/bill";
+import { amountToNumber, clearPendingTransferMark } from "@/ledger/bill";
 import { useIntl } from "@/locale";
 import { measure } from "@/measurement";
 import { useGuideStore } from "@/store/guide";
@@ -64,7 +64,12 @@ export default function BillInfo({
     const toEdit = async () => {
         if (edit?.id) {
             const newBill = await showBillEditor(edit);
-            await useLedgerStore.getState().updateBill(edit.id, newBill);
+            await useLedgerStore
+                .getState()
+                .updateBill(
+                    edit.id,
+                    clearPendingTransferMark(newBill, edit.categoryId),
+                );
             onConfirm?.(true);
         }
     };
@@ -90,7 +95,11 @@ export default function BillInfo({
             }
             const newBill = await showBillEditor(edit);
             await Promise.all([
-                useLedgerStore.getState().addBill({ ...newBill }),
+                useLedgerStore
+                    .getState()
+                    .addBill(
+                        clearPendingTransferMark(newBill, edit.categoryId),
+                    ),
                 useLedgerStore.getState().updateBill(edit.id, {
                     ...edit,
                     amount: edit.amount - newBill.amount,
