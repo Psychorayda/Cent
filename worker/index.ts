@@ -3,6 +3,7 @@ import {
     handleBankSms,
     handleHealth,
     handleInbox,
+    handleResetToken,
     handleToken,
 } from "./bank-sms/handler";
 import { handleDefaultBook } from "./bank-sms/settings";
@@ -19,6 +20,9 @@ export default {
             }
             if (url.pathname === "/api/token") {
                 return await handleToken(request, env);
+            }
+            if (url.pathname === "/api/token/reset") {
+                return await handleResetToken(request, env);
             }
             if (url.pathname === "/api/default-book") {
                 return await handleDefaultBook(request, env);

@@ -34,13 +34,27 @@ async function getVersion(env: Env, uid: string): Promise<string> {
     return (await env.INBOX_KV.get(`tokenver:${uid}`)) ?? "0";
 }
 
-export async function issueToken(env: Env, uid: string): Promise<string> {
+async function signToken(
+    env: Env,
+    uid: string,
+    version: string,
+): Promise<string> {
     const secret = env.CENT_TOKEN_SECRET ?? "";
     if (!secret) throw new Error("CENT_TOKEN_SECRET is not configured");
 
-    const version = await getVersion(env, uid);
     const payload = `${PREFIX}.${uid}.${version}`;
     return `${payload}.${await sign(secret, payload)}`;
+}
+
+export async function issueToken(env: Env, uid: string): Promise<string> {
+    return signToken(env, uid, await getVersion(env, uid));
+}
+
+/** 写入新版本号（旧 token 立即失效），并返回新 token */
+export async function resetToken(env: Env, uid: string): Promise<string> {
+    const version = String(Date.now());
+    await env.INBOX_KV.put(`tokenver:${uid}`, version);
+    return signToken(env, uid, version);
 }
 
 /** 校验通过返回 uid，否则返回 null */
@@ -56,7 +70,7 @@ export async function verifyToken(
 
     const [prefix, uid, version, signature] = parts;
     if (prefix !== PREFIX) return null;
-    if (!/^\d{1,20}$/.test(uid) || !/^\d{1,10}$/.test(version)) return null;
+    if (!/^\d{1,20}$/.test(uid) || !/^\d{1,20}$/.test(version)) return null;
 
     const expected = await sign(secret, `${prefix}.${uid}.${version}`);
     if (!safeEqual(signature, expected)) return null;

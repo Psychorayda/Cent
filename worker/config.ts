@@ -1,10 +1,16 @@
+export type RateLimitBinding = {
+    limit: (options: { key: string }) => Promise<{ success: boolean }>;
+};
+
 export type Env = {
     INBOX_KV: any;
     ASSETS: { fetch: (request: Request) => Promise<Response> };
     GITHUB_TOKEN?: string;
-    GITHUB_REPO?: string;
     /** 短信 token 的 HMAC 密钥 */
     CENT_TOKEN_SECRET?: string;
+    /** Cloudflare Rate Limiting 绑定 */
+    SMS_RATE_LIMITER?: RateLimitBinding;
+    TOKEN_RATE_LIMITER?: RateLimitBinding;
     FALLBACK_EXPENSE_CATEGORY?: string;
     FALLBACK_INCOME_CATEGORY?: string;
     CREDIT_CARD_REPAYMENT_POLICY?: string;

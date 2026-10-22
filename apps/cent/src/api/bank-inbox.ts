@@ -90,9 +90,7 @@ export type CentTokenInfo = {
     login: string;
 };
 
-/** 用当前登录的 GitHub token 换取固定的短信 token */
-export async function fetchCentToken(): Promise<CentTokenInfo> {
-    const data = await request("/api/token", { method: "POST" });
+function readTokenInfo(data: any): CentTokenInfo {
     if (typeof data?.token !== "string") {
         throw new Error("invalid-token-response");
     }
@@ -101,6 +99,16 @@ export async function fetchCentToken(): Promise<CentTokenInfo> {
         uid: String(data.uid ?? ""),
         login: String(data.login ?? ""),
     };
+}
+
+/** 用当前登录的 GitHub token 换取固定的短信 token */
+export async function fetchCentToken(): Promise<CentTokenInfo> {
+    return readTokenInfo(await request("/api/token", { method: "POST" }));
+}
+
+/** 作废旧 token 并换取新的 */
+export async function resetCentToken(): Promise<CentTokenInfo> {
+    return readTokenInfo(await request("/api/token/reset", { method: "POST" }));
 }
 
 export async function fetchDefaultBook(): Promise<string | null> {
@@ -114,4 +122,14 @@ export async function saveDefaultBook(bookId: string | null): Promise<void> {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ defaultBook: bookId }),
     });
+}
+
+/** 默认账本被删除 / 失去权限时自动清空配置 */
+export async function reconcileDefaultBook(bookIds: string[]): Promise<void> {
+    if (!isGithubEndpoint() || !hasGithubToken()) return;
+
+    const current = await fetchDefaultBook();
+    if (current && !bookIds.includes(current)) {
+        await saveDefaultBook(null);
+    }
 }

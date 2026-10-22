@@ -6,10 +6,18 @@ import {
     hasGithubToken,
     isGithubEndpoint,
 } from "@/api/bank-inbox";
+import { StorageAPI } from "@/api/storage";
 import { BillCategories } from "@/ledger/category";
 import { measure } from "@/measurement";
 import { useBookStore } from "@/store/book";
 import { useLedgerStore } from "@/store/ledger";
+
+/** 设置页修改默认账本后，立即触发一次拉取 */
+export const BANK_INBOX_REFRESH_EVENT = "cent:bank-inbox:refresh";
+
+export function requestBankInboxRefresh() {
+    window.dispatchEvent(new Event(BANK_INBOX_REFRESH_EVENT));
+}
 
 const REFUND_CATEGORY = {
     id: "refund",
@@ -121,6 +129,35 @@ async function ensureBankMeta() {
     }
 }
 
+const SYNC_TIMEOUT = 15_000;
+
+/** 等待当前同步会话结束；失败或超时返回 false */
+function waitForSync(): Promise<boolean> {
+    return new Promise((resolve) => {
+        let settled = false;
+        let unsubscribe: (() => void) | undefined;
+
+        const finish = (ok: boolean) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            unsubscribe?.();
+            resolve(ok);
+        };
+
+        const timer = setTimeout(() => finish(false), SYNC_TIMEOUT);
+
+        unsubscribe = StorageAPI.onSync((finished) => {
+            finished.then(() => finish(true)).catch(() => finish(false));
+        });
+
+        // 主动触发一次，确保本次写入所在的会话被监听
+        Promise.resolve()
+            .then(() => StorageAPI.toSync())
+            .catch(() => finish(false));
+    });
+}
+
 async function pullInbox(bookId: string) {
     if (!isGithubEndpoint() || !hasGithubToken()) return;
 
@@ -144,6 +181,13 @@ async function pullInbox(bookId: string) {
             entry: item.bill,
         })),
     );
+
+    const synced = await waitForSync();
+    if (!synced) {
+        // 远端未提交成功：不标记已处理、不 ack，下轮重试
+        console.warn("[bank-inbox] sync pending, retry next round");
+        return;
+    }
 
     markProcessed(fresh.map((item) => item.id));
 
@@ -185,8 +229,14 @@ export function useBankInbox() {
         const onVisible = () => {
             if (document.visibilityState === "visible") run();
         };
+        const onRefresh = () => {
+            // 设置页刚改过默认账本，跳过节流立即拉取
+            lastRun = 0;
+            run();
+        };
         document.addEventListener("visibilitychange", onVisible);
         window.addEventListener("focus", run);
+        window.addEventListener(BANK_INBOX_REFRESH_EVENT, onRefresh);
         const interval = window.setInterval(() => {
             if (document.visibilityState === "visible") run();
         }, 5 * 60_000);
@@ -195,6 +245,7 @@ export function useBankInbox() {
             cancelled = true;
             document.removeEventListener("visibilitychange", onVisible);
             window.removeEventListener("focus", run);
+            window.removeEventListener(BANK_INBOX_REFRESH_EVENT, onRefresh);
             window.clearInterval(interval);
         };
     }, [bookId, ready]);

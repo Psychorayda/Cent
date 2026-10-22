@@ -16,8 +16,25 @@
 			"id": "b77f892c99ab463380a118279a6b8bce"
 		}
 	],
+	"ratelimits": [
+		{
+			"name": "SMS_RATE_LIMITER",
+			"namespace_id": "1001",
+			"simple": {
+				"limit": 30,
+				"period": 60
+			}
+		},
+		{
+			"name": "TOKEN_RATE_LIMITER",
+			"namespace_id": "1002",
+			"simple": {
+				"limit": 30,
+				"period": 60
+			}
+		}
+	],
 	"vars": {
-		"GITHUB_REPO": "Psychorayda/cent-journal-TEST",
 		"FALLBACK_EXPENSE_CATEGORY": "other-expenses",
 		"FALLBACK_INCOME_CATEGORY": "other-income",
 		"CREDIT_CARD_REPAYMENT_POLICY": "expense"

@@ -1,7 +1,7 @@
 import type { Env } from "../config";
 import { json, preview, sha256Hex } from "../lib";
 import { getGithubIdentity, resolveSmsUser } from "./auth";
-import { getCategories, getTags, resolveRepo } from "./categories";
+import { getCategories, getTags } from "./categories";
 import { classify } from "./classify";
 import {
     ackInbox,
@@ -16,8 +16,9 @@ import {
 import { detectBankByText, normalizeFrom, parseTs } from "./normalize";
 import { parseBankSms } from "./parse";
 import { parsePayloadText } from "./payload";
+import { allowRequest, clientIp } from "./ratelimit";
 import { getDefaultBook } from "./settings";
-import { issueToken } from "./token";
+import { issueToken, resetToken } from "./token";
 import type { InboxItem, NormalizedTx } from "./types";
 
 async function makeBillId(tx: NormalizedTx): Promise<string> {
@@ -35,13 +36,19 @@ async function makeBillId(tx: NormalizedTx): Promise<string> {
     return `bank-${hash.slice(0, 32)}`;
 }
 
-/** POST /api/token：用 GitHub token 换取绑定 uid 的长期 token */
-export async function handleToken(
+async function tokenResponse(
     request: Request,
     env: Env,
+    mint: (uid: string) => Promise<string>,
 ): Promise<Response> {
     if (request.method !== "POST") {
         return json({ ok: false, error: "method-not-allowed" }, 405);
+    }
+
+    if (
+        !(await allowRequest(env.TOKEN_RATE_LIMITER, `ip:${clientIp(request)}`))
+    ) {
+        return json({ ok: false, error: "rate-limited" }, 429);
     }
 
     const identity = await getGithubIdentity(request, env);
@@ -54,11 +61,24 @@ export async function handleToken(
             ok: true,
             uid: identity.id,
             login: identity.login,
-            token: await issueToken(env, identity.id),
+            token: await mint(identity.id),
         });
     } catch {
         return json({ ok: false, error: "token-unavailable" }, 503);
     }
+}
+
+/** POST /api/token：用 GitHub token 换取绑定 uid 的长期 token */
+export function handleToken(request: Request, env: Env): Promise<Response> {
+    return tokenResponse(request, env, (uid) => issueToken(env, uid));
+}
+
+/** POST /api/token/reset：作废旧 token 并返回新的 */
+export function handleResetToken(
+    request: Request,
+    env: Env,
+): Promise<Response> {
+    return tokenResponse(request, env, (uid) => resetToken(env, uid));
 }
 
 export async function handleBankSms(
@@ -72,6 +92,10 @@ export async function handleBankSms(
     const uid = await resolveSmsUser(request, env);
     if (!uid) {
         return json({ ok: false, error: "unauthorized" }, 401);
+    }
+
+    if (!(await allowRequest(env.SMS_RATE_LIMITER, uid))) {
+        return json({ ok: false, error: "rate-limited" }, 429);
     }
 
     const body = await request.text();
@@ -97,8 +121,8 @@ export async function handleBankSms(
     const defaultBook = await getDefaultBook(env, uid);
     const bookId = defaultBook ?? "unassigned";
 
-    // 分类配置优先读用户自己的账本，未设置默认账本时回退到服务端配置的仓库
-    const metaRepo = defaultBook ?? (await resolveRepo(env));
+    // 分类配置只读用户自己的默认账本；未设置时使用内置默认分类
+    const metaRepo = defaultBook ?? "";
     const categories = await getCategories(env, metaRepo);
     const tags = await getTags(env, metaRepo);
 
@@ -131,7 +155,7 @@ export async function handleBankSms(
 
     const tx = outcome.tx;
     const billId = await makeBillId(tx);
-    const classification = await classify(tx, categories, tags, env);
+    const classification = await classify(tx, categories, tags, env, uid);
 
     if (dryRun) {
         return json({

@@ -3,6 +3,7 @@ import type { StateCreator } from "zustand";
 import { create } from "zustand";
 import type { PersistOptions } from "zustand/middleware";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { reconcileDefaultBook } from "@/api/bank-inbox";
 import type { Book } from "@/api/endpoints/type";
 import { CUSTOM_CSS_STORAGE_KEY } from "@/utils/preset";
 import { loadStorageAPI } from "../api/storage/dynamic";
@@ -48,6 +49,10 @@ export const useBookStore = create<BookStore>()(
                         produce((state: BookStore) => {
                             state.books = allBooks;
                         }),
+                    );
+                    // 账本被删除或失去协作者权限时，清空已失效的默认账本
+                    void reconcileDefaultBook(allBooks.map((b) => b.id)).catch(
+                        () => {},
                     );
                     return allBooks;
                 } finally {

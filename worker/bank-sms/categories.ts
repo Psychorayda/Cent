@@ -30,35 +30,9 @@ const ghHeaders = (env: Env) => ({
 });
 
 /**
- * 优先使用配置的仓库；否则自动找第一个 cent-journal-* 私有仓库。
+ * 读取指定仓库的 meta.json（分类 / 标签）。
+ * GitHub token 无权限时返回 null，调用方回退到内置默认分类。
  */
-export async function resolveRepo(env: Env): Promise<string> {
-	const configured = env.GITHUB_REPO?.trim();
-	if (configured) return configured;
-
-	const cached = await env.INBOX_KV.get("repo:default");
-	if (cached) return cached;
-
-	if (!env.GITHUB_TOKEN) return "";
-
-	const res = await fetch(
-		"https://api.github.com/user/repos?per_page=100&affiliation=owner&sort=updated",
-		{ headers: ghHeaders(env) },
-	);
-	if (!res.ok) return "";
-
-	const repos = (await res.json()) as Array<{
-		name?: string;
-		full_name?: string;
-	}>;
-	const repo =
-		repos.find((r) => r.name?.startsWith("cent-journal-"))?.full_name ?? "";
-	if (repo) {
-		await env.INBOX_KV.put("repo:default", repo, { expirationTtl: 600 });
-	}
-	return repo;
-}
-
 export async function getMeta(env: Env, repo: string): Promise<any | null> {
 	if (!repo || !env.GITHUB_TOKEN) return null;
 

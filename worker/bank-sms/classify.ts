@@ -172,6 +172,8 @@ export async function classify(
 	categories: CategoryInfo[],
 	tags: TagInfo[],
 	env: Env,
+	/** 缓存作用域，通常传用户 uid，避免不同用户互相命中 */
+	scope = "",
 ): Promise<Classification> {
 	const merchant = tx.merchant ?? "";
 	const inner = [tx.subtype, tx.channel, merchant]
@@ -297,7 +299,7 @@ export async function classify(
 	}
 
 	// 8. LLM 兜底（只做分类，不参与金额解析）
-	const llm = await classifyWithLlm(tx, categories, env);
+	const llm = await classifyWithLlm(tx, categories, env, scope);
 	if (llm) {
 		if (!llm.categoryId) {
 			return {
@@ -463,6 +465,7 @@ async function classifyWithLlm(
 	tx: NormalizedTx,
 	categories: CategoryInfo[],
 	env: Env,
+	scope: string,
 ): Promise<{
 	categoryId: string | null;
 	confidence: number;
@@ -490,7 +493,7 @@ async function classifyWithLlm(
 
 	const cacheIdentity = tx.merchant || tx.subtype || "";
 	const cacheKey = cacheIdentity
-		? `llm-category:${tx.direction}:${cacheIdentity}:${mealPeriod}`
+		? `llm-category:${scope}:${tx.direction}:${cacheIdentity}:${mealPeriod}`
 		: "";
 	if (cacheKey) {
 		const cachedRaw = await env.INBOX_KV.get(cacheKey);
