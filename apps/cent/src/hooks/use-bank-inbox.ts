@@ -124,36 +124,15 @@ async function ensureBankMeta() {
 async function pullInbox(bookId: string) {
     if (!isGithubEndpoint() || !hasGithubToken()) return;
 
-    const [assigned, unassigned] = await Promise.all([
-        fetchBankInbox(bookId),
-        bookId === "unassigned"
-            ? Promise.resolve([])
-            : fetchBankInbox("unassigned").catch(() => []),
-    ]);
+    // 服务端已按 uid + 当前账本过滤，未绑定该账本的短信不会返回
+    const items = await fetchBankInbox(bookId);
+    if (items.length === 0) return;
 
-    const byId = new Map(
-        [...assigned, ...unassigned].map((item) => [item.id, item]),
-    );
-    const items = [...byId.values()];
     const processed = new Set(readProcessed());
     const fresh = items.filter((item) => !processed.has(item.id));
-    const stale = items.filter((item) => processed.has(item.id));
-
-    const groups = new Map<string, string[]>();
-    for (const item of [...fresh, ...stale]) {
-        const list = groups.get(item.bookId) ?? [];
-        list.push(item.id);
-        groups.set(item.bookId, list);
-    }
 
     if (fresh.length === 0) {
-        if (stale.length > 0) {
-            await Promise.all(
-                [...groups.entries()].map(([targetBook, ids]) =>
-                    ackBankInbox(targetBook, ids),
-                ),
-            );
-        }
+        await ackBankInbox(items.map((item) => item.id));
         return;
     }
 
@@ -168,11 +147,7 @@ async function pullInbox(bookId: string) {
 
     markProcessed(fresh.map((item) => item.id));
 
-    await Promise.all(
-        [...groups.entries()].map(([targetBook, ids]) =>
-            ackBankInbox(targetBook, ids),
-        ),
-    );
+    await ackBankInbox(items.map((item) => item.id));
 
     toast.success(`已自动导入 ${fresh.length} 笔银行账单`);
     measure("bill_created", {

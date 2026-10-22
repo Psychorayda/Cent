@@ -67,19 +67,51 @@ async function request(path: string, init?: RequestInit): Promise<any> {
     return res.json();
 }
 
-export async function fetchBankInbox(bookId: string): Promise<BankInboxItem[]> {
-    const data = await request(`/api/inbox?book=${encodeURIComponent(bookId)}`);
+export async function fetchBankInbox(
+    bookId?: string,
+): Promise<BankInboxItem[]> {
+    const qs = bookId ? `?book=${encodeURIComponent(bookId)}` : "";
+    const data = await request(`/api/inbox${qs}`);
     return Array.isArray(data?.items) ? data.items : [];
 }
 
-export async function ackBankInbox(
-    bookId: string,
-    ids: string[],
-): Promise<void> {
+export async function ackBankInbox(ids: string[]): Promise<void> {
     if (ids.length === 0) return;
     await request("/api/inbox/ack", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bookId, ids }),
+        body: JSON.stringify({ ids }),
+    });
+}
+
+export type CentTokenInfo = {
+    token: string;
+    uid: string;
+    login: string;
+};
+
+/** 用当前登录的 GitHub token 换取固定的短信 token */
+export async function fetchCentToken(): Promise<CentTokenInfo> {
+    const data = await request("/api/token", { method: "POST" });
+    if (typeof data?.token !== "string") {
+        throw new Error("invalid-token-response");
+    }
+    return {
+        token: data.token,
+        uid: String(data.uid ?? ""),
+        login: String(data.login ?? ""),
+    };
+}
+
+export async function fetchDefaultBook(): Promise<string | null> {
+    const data = await request("/api/default-book");
+    return typeof data?.defaultBook === "string" ? data.defaultBook : null;
+}
+
+export async function saveDefaultBook(bookId: string | null): Promise<void> {
+    await request("/api/default-book", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ defaultBook: bookId }),
     });
 }

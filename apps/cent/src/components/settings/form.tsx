@@ -1,3 +1,4 @@
+import { isGithubEndpoint } from "@/api/bank-inbox";
 import { StorageAPI, StorageDeferredAPI } from "@/api/storage";
 import PopupLayout from "@/layouts/popup-layout";
 import { useIntl } from "@/locale";
@@ -16,6 +17,7 @@ import WidgetSettings from "../widget";
 import AboutSettingsItem, { AdvancedGuideItem } from "./about";
 import AgentApiSettingsItem from "./agent-api";
 import AssistantSettingsItem from "./assistant";
+import BankSmsSettingsItems from "./bank-sms";
 import LabSettingsItem from "./lab";
 import LanguageSettingsItem from "./language";
 import MapSettingsItem from "./map-settings";
@@ -126,6 +128,16 @@ export default function SettingsForm({
                             <DataManagerSettingsItem />
                         </div>
                     </div>
+                    {isGithubEndpoint() && (
+                        <div>
+                            <div className="text-xs opacity-60 px-8">
+                                {t("bank-sms")}
+                            </div>
+                            <div className="flex flex-col divide-y">
+                                <BankSmsSettingsItems />
+                            </div>
+                        </div>
+                    )}
                     <div>
                         <div className="text-xs opacity-60 px-8">{t("ai")}</div>
                         <div className="flex flex-col divide-y">

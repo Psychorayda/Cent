@@ -1,16 +1,16 @@
 export type Env = {
-	INBOX_KV: any;
-	ASSETS: { fetch: (request: Request) => Promise<Response> };
-	BANK_SMS_TOKEN?: string;
-	GITHUB_TOKEN?: string;
-	GITHUB_REPO?: string;
-	OWNER_GITHUB_ID?: string;
-	FALLBACK_EXPENSE_CATEGORY?: string;
-	FALLBACK_INCOME_CATEGORY?: string;
-	CREDIT_CARD_REPAYMENT_POLICY?: string;
-	LLM_BASE_URL?: string;
-	LLM_MODEL?: string;
-	LLM_API_KEY?: string;
+    INBOX_KV: any;
+    ASSETS: { fetch: (request: Request) => Promise<Response> };
+    GITHUB_TOKEN?: string;
+    GITHUB_REPO?: string;
+    /** 短信 token 的 HMAC 密钥 */
+    CENT_TOKEN_SECRET?: string;
+    FALLBACK_EXPENSE_CATEGORY?: string;
+    FALLBACK_INCOME_CATEGORY?: string;
+    CREDIT_CARD_REPAYMENT_POLICY?: string;
+    LLM_BASE_URL?: string;
+    LLM_MODEL?: string;
+    LLM_API_KEY?: string;
 };
 
 export const DEFAULT_EXPENSE_CATEGORY = "other-expenses";

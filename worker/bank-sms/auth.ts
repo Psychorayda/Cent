@@ -1,56 +1,72 @@
 import type { Env } from "../config";
-import { safeEqual, sha256Hex } from "../lib";
+import { sha256Hex } from "../lib";
+import { verifyToken } from "./token";
 
 function getBearer(request: Request): string | undefined {
-	const auth = request.headers.get("Authorization") ?? "";
-	if (auth.toLowerCase().startsWith("bearer ")) {
-		return auth.slice(7).trim();
-	}
-	return undefined;
+    const auth = request.headers.get("Authorization") ?? "";
+    if (auth.toLowerCase().startsWith("bearer ")) {
+        return auth.slice(7).trim();
+    }
+    return undefined;
 }
 
-export function checkSmsAuth(request: Request, env: Env): boolean {
-	const expected = env.BANK_SMS_TOKEN ?? "";
-	if (!expected) return false;
-
-	const provided =
-		request.headers.get("X-Cent-Token") ??
-		getBearer(request) ??
-		new URL(request.url).searchParams.get("token") ??
-		"";
-	return safeEqual(provided, expected);
+/** 短信侧凭证：Header 优先，其次 Bearer，最后 query（兼容只能拼 URL 的转发器） */
+export function getRequestToken(request: Request): string | undefined {
+    return (
+        request.headers.get("X-Cent-Token") ??
+        getBearer(request) ??
+        new URL(request.url).searchParams.get("token") ??
+        undefined
+    );
 }
 
-export async function checkInboxAuth(
-	request: Request,
-	env: Env,
-): Promise<boolean> {
-	const token = getBearer(request);
-	if (!token) return false;
+/** 短信入口鉴权：校验签名 token，返回 uid */
+export async function resolveSmsUser(
+    request: Request,
+    env: Env,
+): Promise<string | null> {
+    const token = getRequestToken(request);
+    if (!token) return null;
+    return verifyToken(env, token);
+}
 
-	const ownerId = env.OWNER_GITHUB_ID?.trim();
-	if (!ownerId) return false;
+export type GithubIdentity = {
+    id: string;
+    login: string;
+};
 
-	const tokenHash = await sha256Hex(token);
-	const cacheKey = `auth:${tokenHash}`;
-	const cached = await env.INBOX_KV.get(cacheKey);
-	if (cached) {
-		return cached === ownerId;
-	}
+/** 客户端鉴权：用 GitHub token 换取 uid + login */
+export async function getGithubIdentity(
+    request: Request,
+    env: Env,
+): Promise<GithubIdentity | null> {
+    const token = getBearer(request);
+    if (!token) return null;
 
-	const res = await fetch("https://api.github.com/user", {
-		headers: {
-			Authorization: `Bearer ${token}`,
-			"User-Agent": "cent-worker",
-			"X-GitHub-Api-Version": "2022-11-28",
-		},
-	});
-	if (!res.ok) return false;
+    const cacheKey = `ghuser:${await sha256Hex(token)}`;
+    const cached = (await env.INBOX_KV.get(
+        cacheKey,
+        "json",
+    )) as GithubIdentity | null;
+    if (cached?.id) return cached;
 
-	const data: any = await res.json();
-	const id = String(data?.id ?? "");
-	if (!id) return false;
+    const res = await fetch("https://api.github.com/user", {
+        headers: {
+            Authorization: `Bearer ${token}`,
+            "User-Agent": "cent-worker",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    });
+    if (!res.ok) return null;
 
-	await env.INBOX_KV.put(cacheKey, id, { expirationTtl: 600 });
-	return id === ownerId;
+    const data: any = await res.json();
+    const id = String(data?.id ?? "");
+    const login = String(data?.login ?? "");
+    if (!id) return null;
+
+    const identity = { id, login };
+    await env.INBOX_KV.put(cacheKey, JSON.stringify(identity), {
+        expirationTtl: 600,
+    });
+    return identity;
 }
