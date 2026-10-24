@@ -50,25 +50,34 @@ declare global {
 let currentRecognition: ISpeechRecognition | null = null;
 
 export function isSpeechRecognitionSupported() {
+    if (window.isSecureContext === false) {
+        return false;
+    }
     const SpeechRecognition =
         window.SpeechRecognition || window.webkitSpeechRecognition;
     return !!SpeechRecognition;
 }
 
+const failed = (code: string) => ({
+    finished: Promise.reject(new Error(code)),
+    cancel: () => {},
+    stop: () => {},
+});
+
 export function startRecognize(onChange?: (text: string) => void) {
     console.log("start recognize");
+
+    // Web Speech API 依赖安全上下文（HTTPS / localhost）
+    if (window.isSecureContext === false) {
+        return failed("insecure");
+    }
 
     // 检查浏览器是否支持 Web Speech API
     const SpeechRecognition =
         window.SpeechRecognition || window.webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-        const error = new Error("unsupported browser");
-        return {
-            finished: Promise.reject(error),
-            cancel: () => {},
-            stop: () => {},
-        };
+        return failed("unsupported");
     }
 
     // 停止之前的识别
@@ -90,8 +99,21 @@ export function startRecognize(onChange?: (text: string) => void) {
     let currentText = ""; // 保存当前完整文本（包括临时结果）
     let isCancelled = false;
     let isStopped = false; // 标记是否手动停止
+    let settled = false;
+    let noSpeech = false;
     let promiseResolve: (value: string) => void;
     let promiseReject: (reason: Error) => void;
+
+    const resolveOnce = (value: string) => {
+        if (settled) return;
+        settled = true;
+        promiseResolve(value);
+    };
+    const rejectOnce = (reason: Error) => {
+        if (settled) return;
+        settled = true;
+        promiseReject(reason);
+    };
 
     const finished = new Promise<string>((resolve, reject) => {
         promiseResolve = resolve;
@@ -126,34 +148,54 @@ export function startRecognize(onChange?: (text: string) => void) {
             console.error("Recognition error:", event.error, event.message);
 
             // 手动取消的情况在 cancel 方法中处理
-            if (event.error === "aborted" && isCancelled) {
+            if (isCancelled) {
                 return;
             }
 
-            // 其他错误情况
-            if (event.error !== "aborted") {
-                const errorMessage = event.error;
-                reject(new Error(errorMessage));
+            // no-speech 不直接判失败，交给 onend 统一收尾，
+            // 这样用户可能已经说出的临时结果仍有机会被使用。
+            if (event.error === "no-speech") {
+                noSpeech = true;
+                return;
             }
 
-            currentRecognition = null;
+            rejectOnce(
+                new Error(
+                    event.error === "aborted"
+                        ? "recognition-aborted"
+                        : event.error,
+                ),
+            );
+            if (currentRecognition === recognition) {
+                currentRecognition = null;
+            }
         };
 
         // 识别结束
         recognition.onend = () => {
             console.log("Recognition ended");
+            if (currentRecognition === recognition) {
+                currentRecognition = null;
+            }
 
             // 如果是取消操作，不执行 resolve
-            if (isCancelled) {
-                currentRecognition = null;
+            if (isCancelled || settled) {
                 return;
             }
 
-            // 如果是手动停止，返回当前完整文本（包括临时结果）
-            // 否则返回最终文本
-            const resultText = isStopped ? currentText : finalTranscript;
-            promiseResolve(resultText);
-            currentRecognition = null;
+            if (currentText.trim()) {
+                // 手动停止或识别自然结束，只要有内容就返回
+                resolveOnce(currentText);
+                return;
+            }
+
+            // 没有任何识别结果：区分“用户没说话”与“识别服务异常结束”，
+            // 避免调用方误以为流程正常完成。
+            rejectOnce(
+                new Error(
+                    isStopped || noSpeech ? "no-speech" : "recognition-ended",
+                ),
+            );
         };
 
         // 开始识别
@@ -161,10 +203,14 @@ export function startRecognize(onChange?: (text: string) => void) {
             recognition.start();
         } catch (error) {
             console.error("Failed to start recognition:", error);
-            const err =
-                error instanceof Error ? error : new Error(String(error));
-            reject(err);
-            currentRecognition = null;
+            const name =
+                error instanceof DOMException ? error.name : "start-failed";
+            rejectOnce(
+                new Error(name === "NotAllowedError" ? "not-allowed" : name),
+            );
+            if (currentRecognition === recognition) {
+                currentRecognition = null;
+            }
         }
     });
 
@@ -175,8 +221,12 @@ export function startRecognize(onChange?: (text: string) => void) {
             console.log("cancel recognize");
             if (recognition && currentRecognition === recognition) {
                 isCancelled = true;
-                promiseReject(new Error("aborted manually"));
-                recognition.abort();
+                rejectOnce(new Error("aborted manually"));
+                try {
+                    recognition.abort();
+                } catch {
+                    // 识别已结束时 abort 可能抛错，忽略即可
+                }
                 currentRecognition = null;
             }
         },
@@ -185,7 +235,11 @@ export function startRecognize(onChange?: (text: string) => void) {
             console.log("stop recognize");
             if (recognition && currentRecognition === recognition) {
                 isStopped = true; // 标记为手动停止
-                recognition.stop();
+                try {
+                    recognition.stop();
+                } catch {
+                    // 识别尚未真正启动时 stop 可能抛错，忽略即可
+                }
             }
         },
     };
@@ -194,7 +248,11 @@ export function startRecognize(onChange?: (text: string) => void) {
 export function stopRecognize() {
     console.log("stop recognize");
     if (currentRecognition) {
-        currentRecognition.stop();
+        try {
+            currentRecognition.stop();
+        } catch {
+            // ignore
+        }
         currentRecognition = null;
     }
 }

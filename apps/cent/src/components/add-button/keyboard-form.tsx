@@ -29,6 +29,7 @@ export default function KeyboardForm({
             setLoading(true);
             const bills = await parseTextToBill(textValue);
             if (bills.length === 0) {
+                toast.error(t("voice-error-no-bills"));
                 return;
             }
             await useLedgerStore.getState().addBills(bills);
@@ -37,6 +38,8 @@ export default function KeyboardForm({
                 item_count: bills.length,
             });
             toast.success(t("voice-add-success", { count: bills.length }));
+            // 仅在成功后关闭弹窗，失败时保留输入内容便于修改重试
+            onConfirm?.(text);
         } catch (error) {
             console.error(error);
             toast.error(
@@ -46,7 +49,6 @@ export default function KeyboardForm({
             );
         } finally {
             setLoading(false);
-            onConfirm?.(text);
         }
     };
 
